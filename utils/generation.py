@@ -1,4 +1,4 @@
-import os, sys
+import os
 import torch
 from vocos import Vocos
 import gdown
@@ -129,14 +129,14 @@ def generate_audio(text, prompt=None, language='auto', accent='no-accent'):
         enroll_x_lens=enroll_x_lens,
         top_k=-100,
         temperature=1,
-        #temperature=1,
         prompt_language=lang_pr,
         text_language=langs if accent == "no-accent" else lang,
     )
     # Decode with Vocos
-    optimized_frames = encoded_frames.permute(2,0,1)
-    features = vocos.codes_to_features(optimized_frames)
+    frames = encoded_frames.permute(2,0,1)
+    features = vocos.codes_to_features(frames)
     samples = vocos.decode(features, bandwidth_id=torch.tensor([2], device=device))
+
     return samples.squeeze().cpu().numpy()
 
 @torch.no_grad()
