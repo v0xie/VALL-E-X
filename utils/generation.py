@@ -1,5 +1,8 @@
-import os
+import os, sys
+sys.path.append('VALLEX')
 import torch
+import torchaudio
+from vocos import Vocos
 import gdown
 import logging
 import langid
@@ -40,11 +43,16 @@ model = None
 
 codec = None
 
-text_tokenizer = PhonemeBpeTokenizer(tokenizer_path="./utils/g2p/bpe_69.json")
+vocos = None
+
+
+
+assert os.path.exists('VALLEX/utils/g2p/bpe_69.json'), 'File not Found bpe_69.json'
+text_tokenizer = PhonemeBpeTokenizer(tokenizer_path="VALLEX/utils/g2p/bpe_69.json")
 text_collater = get_text_token_collater()
 
 def preload_models():
-    global model, codec
+    global model, codec, vocos
     if not os.path.exists(checkpoints_dir): os.mkdir(checkpoints_dir)
     if not os.path.exists(os.path.join(checkpoints_dir, model_checkpoint_name)):
         gdown.download(id="10gdQWvP-K_e1undkvv0p2b7SU6I4Egyl", output=os.path.join(checkpoints_dir, model_checkpoint_name), quiet=False)
@@ -70,6 +78,8 @@ def preload_models():
 
     # Encodec
     codec = AudioTokenizer(device)
+    
+    vocos = Vocos.from_pretrained('charactr/vocos-encodec-24khz').to(device)
 
 @torch.no_grad()
 def generate_audio(text, prompt=None, language='auto', accent='no-accent'):
@@ -127,10 +137,23 @@ def generate_audio(text, prompt=None, language='auto', accent='no-accent'):
         prompt_language=lang_pr,
         text_language=langs if accent == "no-accent" else lang,
     )
-    samples = codec.decode(
-        [(encoded_frames.transpose(2, 1), None)]
-    )
-
+    #frames = encoded_frames.cpu().numpy()
+    #frames = [(encoded_frames.transpose(2, 1), None)]
+    #decoded_encodec = codec.decode(frames)
+    frames = encoded_frames.transpose(2, 1).transpose(0, 1).cpu().numpy()
+    #frames = encoded_frames.transpose(2, 1).transpose(0, 1).cpu().numpy()
+    #frames = encoded_frames.cpu().transpose(2,1).numpy()
+    # Decode with Vocos
+    #frames = np.array(frames.cpu().numpy())
+    #codes, scale = frames 
+    #codes = codes.transpose(0, 1).cpu().numpy()
+    #frames = np.asarray([(encoded_frames.cpu().transpose(2, 1), None)])
+    audio_tokens_torch = torch.from_numpy(frames).to(device)
+    features = vocos.codes_to_features(audio_tokens_torch)
+    samples = vocos.decode(features, bandwidth_id=torch.tensor([2], device=device))
+    samples = torchaudio.functional.resample(samples, orig_freq=SAMPLE_RATE, new_freq=44100)
+    #returned_samples = decoded_encodec[0][0].cpu().numpy()
+    return samples.squeeze().cpu().numpy()
     return samples[0][0].cpu().numpy()
 
 @torch.no_grad()
