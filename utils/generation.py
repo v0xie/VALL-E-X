@@ -1,7 +1,5 @@
 import os, sys
-sys.path.append('VALLEX')
 import torch
-import torchaudio
 from vocos import Vocos
 import gdown
 import logging
@@ -45,10 +43,7 @@ codec = None
 
 vocos = None
 
-
-
-assert os.path.exists('VALLEX/utils/g2p/bpe_69.json'), 'File not Found bpe_69.json'
-text_tokenizer = PhonemeBpeTokenizer(tokenizer_path="VALLEX/utils/g2p/bpe_69.json")
+text_tokenizer = PhonemeBpeTokenizer(tokenizer_path="./utils/g2p/bpe_69.json")
 text_collater = get_text_token_collater()
 
 def preload_models():
@@ -83,7 +78,7 @@ def preload_models():
 
 @torch.no_grad()
 def generate_audio(text, prompt=None, language='auto', accent='no-accent'):
-    global model, codec, text_tokenizer, text_collater
+    global model, codec, vocos, text_tokenizer, text_collater
     text = text.replace("\n", "").strip(" ")
     # detect language
     if language == "auto":
@@ -138,12 +133,6 @@ def generate_audio(text, prompt=None, language='auto', accent='no-accent'):
         prompt_language=lang_pr,
         text_language=langs if accent == "no-accent" else lang,
     )
-    # # Decode with Encodec
-    # frames = [(encoded_frames.transpose(2, 1), None)]
-    # samples = codec.decode(frames)
-    # #samples = torchaudio.functional.resample(samples, orig_freq=SAMPLE_RATE, new_freq=44100)
-    # return samples[0][0].cpu().numpy()
-
     # Decode with Vocos
     optimized_frames = encoded_frames.permute(2,0,1)
     features = vocos.codes_to_features(optimized_frames)
@@ -157,7 +146,7 @@ def generate_audio_from_long_text(text, prompt=None, language='auto', accent='no
     fixed-prompt: This mode will keep using the same prompt the user has provided, and generate audio sentence by sentence.
     sliding-window: This mode will use the last sentence as the prompt for the next sentence, but has some concern on speaker maintenance.
     """
-    global model, codec, text_tokenizer, text_collater
+    global model, codec, vocos, text_tokenizer, text_collater
     if prompt is None or prompt == "":
         mode = 'sliding-window'  # If no prompt is given, use sliding-window mode
     sentences = split_text_into_sentences(text)
@@ -220,10 +209,11 @@ def generate_audio_from_long_text(text, prompt=None, language='auto', accent='no
                 text_language=langs if accent == "no-accent" else lang,
             )
             complete_tokens = torch.cat([complete_tokens, encoded_frames.transpose(2, 1)], dim=-1)
-        samples = codec.decode(
-            [(complete_tokens, None)]
-        )
-        return samples[0][0].cpu().numpy()
+        # Decode with Vocos
+        frames = complete_tokens.permute(1,0,2)
+        features = vocos.codes_to_features(frames)
+        samples = vocos.decode(features, bandwidth_id=torch.tensor([2], device=device))
+        return samples.squeeze().cpu().numpy()
     elif mode == "sliding-window":
         complete_tokens = torch.zeros([1, NUM_QUANTIZERS, 0]).type(torch.LongTensor).to(device)
         original_audio_prompts = audio_prompts
@@ -265,9 +255,10 @@ def generate_audio_from_long_text(text, prompt=None, language='auto', accent='no
             else:
                 audio_prompts = original_audio_prompts
                 text_prompts = original_text_prompts
-        samples = codec.decode(
-            [(complete_tokens, None)]
-        )
-        return samples[0][0].cpu().numpy()
+        # Decode with Vocos
+        frames = complete_tokens.permute(1,0,2)
+        features = vocos.codes_to_features(frames)
+        samples = vocos.decode(features, bandwidth_id=torch.tensor([2], device=device))
+        return samples.squeeze().cpu().numpy()
     else:
         raise ValueError(f"No such mode {mode}")
