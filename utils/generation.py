@@ -134,27 +134,21 @@ def generate_audio(text, prompt=None, language='auto', accent='no-accent'):
         enroll_x_lens=enroll_x_lens,
         top_k=-100,
         temperature=1,
+        #temperature=1,
         prompt_language=lang_pr,
         text_language=langs if accent == "no-accent" else lang,
     )
-    #frames = encoded_frames.cpu().numpy()
-    #frames = [(encoded_frames.transpose(2, 1), None)]
-    #decoded_encodec = codec.decode(frames)
-    frames = encoded_frames.transpose(2, 1).transpose(0, 1).cpu().numpy()
-    #frames = encoded_frames.transpose(2, 1).transpose(0, 1).cpu().numpy()
-    #frames = encoded_frames.cpu().transpose(2,1).numpy()
+    # # Decode with Encodec
+    # frames = [(encoded_frames.transpose(2, 1), None)]
+    # samples = codec.decode(frames)
+    # #samples = torchaudio.functional.resample(samples, orig_freq=SAMPLE_RATE, new_freq=44100)
+    # return samples[0][0].cpu().numpy()
+
     # Decode with Vocos
-    #frames = np.array(frames.cpu().numpy())
-    #codes, scale = frames 
-    #codes = codes.transpose(0, 1).cpu().numpy()
-    #frames = np.asarray([(encoded_frames.cpu().transpose(2, 1), None)])
-    audio_tokens_torch = torch.from_numpy(frames).to(device)
-    features = vocos.codes_to_features(audio_tokens_torch)
+    optimized_frames = encoded_frames.permute(2,0,1)
+    features = vocos.codes_to_features(optimized_frames)
     samples = vocos.decode(features, bandwidth_id=torch.tensor([2], device=device))
-    samples = torchaudio.functional.resample(samples, orig_freq=SAMPLE_RATE, new_freq=44100)
-    #returned_samples = decoded_encodec[0][0].cpu().numpy()
     return samples.squeeze().cpu().numpy()
-    return samples[0][0].cpu().numpy()
 
 @torch.no_grad()
 def generate_audio_from_long_text(text, prompt=None, language='auto', accent='no-accent', mode='sliding-window'):
